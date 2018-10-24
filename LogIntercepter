@@ -1,0 +1,76 @@
+/**
+ *            添加请求网络日志拦截 日志可以在本地打印
+ *            .addNetworkInterceptor(StethoInterceptor())
+ *              // 打印使用http请求日志
+ *               .addInterceptor(ChuckInterceptor(app))
+ *              //日志拦截 打印到本地
+ *               .addInterceptor(LogIntercepter())
+ */
+class LogIntercepter : Interceptor {
+
+    @Throws(IOException::class)
+    override fun intercept(chain: Interceptor.Chain): Response {
+        var request = chain.request()
+        request = request.newBuilder()
+                .addHeader("Cookie", "XDEBUG_SESSION=PHPSTORM").build()
+
+        val body = request.body()
+        var result: StringBuilder? = null
+        val params = StringBuilder()
+        // 获取MultipartBody中的Parts中的Headers
+        if (body is MultipartBody) {
+            result = StringBuilder().append("Multipart:\n")
+            val multipartBody = body as MultipartBody?
+            for (part in multipartBody!!.parts()) {
+                try {
+                    val headers = part.javaClass.getDeclaredField("headers")
+                    headers.isAccessible = true
+                    val headers2 = headers.get(part) as Headers
+                    result!!
+                            .append("\t")
+                            .append(headers2.toString())
+                } catch (e: NoSuchFieldException) {
+                    e.printStackTrace()
+                } catch (e: IllegalAccessException) {
+                    e.printStackTrace()
+                }
+
+            }
+        } else if (body is FormBody) {
+            result = StringBuilder().append("Form:\n")
+            params.append("?")
+            val formBody = body as FormBody?
+            for (i in 0 until formBody!!.size()) {
+                params
+                        .append(formBody.name(i))
+                        .append("=")
+                        .append(formBody.value(i))
+                        .append("&")
+                result!!
+                        .append("\t")
+                        .append(formBody.name(i)).append(": ")
+                        .append("\t")
+                        .append(formBody.value(i)).append("\n")
+            }
+            if (params.isNotEmpty()) {
+                params.deleteCharAt(params.length - 1)
+            }
+        }
+        var tag = request.url().toString()
+        val paths = request.url().pathSegments()
+        if (paths != null && paths.size > 0) {
+            tag = paths[paths.size - 1]
+        }
+        LogUtil.e(tag,String.format("Request:\nmethod=%s, url=%s%s\n%s", request.method(), request.url(), params, result))
+        val t1 = System.nanoTime()
+        val response = chain.proceed(request)
+        val t2 = System.nanoTime()
+        LogUtil.d(String.format(Locale.getDefault(), "Response:\nReceived response for %s in %.1fms%n%s", response.request().url(), (t2 - t1) / 1e6, response.headers()))
+        val mediaType = response.body()!!.contentType()
+        val content = response.body()!!.string()
+        LogUtil.json(tag,content)
+        return response.newBuilder()
+                .body(okhttp3.ResponseBody.create(mediaType, content))
+                .build()
+
+    }
